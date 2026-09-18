@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruffle SWF Player (offline, JS enabled)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #fff;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            text-align: center;
+            background: linear-gradient(90deg, #e94560, #f5a623);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        #container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f0f1a;
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05);
+            min-height: 500px;
+        }
+
+        #container ruffle-player {
+            width: 100%;
+            height: 500px;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            padding: 12px 28px;
+            border-radius: 8px;
+            border: none;
+            background: linear-gradient(90deg, #e94560, #c62a45);
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(233,69,96,0.4);
+        }
+
+        button:active { transform: translateY(0); }
+
+        .status {
+            margin-top: 16px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.5);
+            min-height: 20px;
+            text-align: center;
+            word-break: break-all;
+        }
+
+        .status.error { color: #ff6b6b; }
+        .status.ok    { color: #51cf66; }
+
+        .hint {
+            margin-top: 24px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.35);
+            text-align: center;
+            max-width: 640px;
+            line-height: 1.7;
+        }
+
+        .hint code {
+            background: rgba(255,255,255,0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        #container.dragover {
+            outline: 2px dashed #e94560;
+            outline-offset: -6px;
+            background: #1a0f1a;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🎮 Ruffle SWF Player (offline, JS enabled)</h1>
+
+    <div id="container"></div>
+
+    <div class="controls">
+        <button onclick="document.getElementById('fileInput').click()">📂 Открыть SWF</button>
+        <button onclick="toggleFullscreen()">⛶ Полный экран</button>
+    </div>
+
+    <input type="file" id="fileInput" accept=".swf,application/x-shockwave-flash" style="display:none">
+
+    <div class="status" id="status">Выберите SWF-файл или перетащите его в окно</div>
+
+    <div class="hint">
+        Работает без сервера — откройте <code>index.html</code> двойным кликом.<br>
+        Ruffle подключается из локальной папки <code>ruf/</code>.<br>
+        <b>allowScriptAccess: true</b> включён — SWF может обращаться к JS.
+    </div>
+
+    <script>
+        // ---- Конфиг Ruffle (задаём ДО подключения ruffle.js) ----
+        window.RufflePlayer = window.RufflePlayer || {};
+        window.RufflePlayer.config = {
+            publicPath: "ruf/",
+            autoplay: "on",
+            unmuteOverlay: "hidden",
+            letterbox: "on",
+            scale: "showAll",
+            quality: "high",
+            warnOnUnsupportedContent: true,
+            showSwfDownload: false,
+            contextMenu: "on",
+            backgroundColor: "#000000",
+            logLevel: "warn",            // чуть подробнее логи
+            allowScriptAccess: true,     // ← РАЗРЕШЕНО
+            upgradeToHttps: false,
+            allowNetworking: "all",
+            splashScreen: true,
+            playerVersion: 32,
+        };
+
+        // Заглушка для ExternalInterface.call("window.location...") и т.п.
+        // Некоторые SWF проверяют домен через JS — подсовываем «нормальный» вид.
+        window.RufflePlayer.config.socketProxy = [];
+    </script>
+
+    <!-- Локальный Ruffle -->
+    <script src="ruf/ruffle.js"></script>
+
+    <script>
+        let player = null;
+        let currentBlobUrl = null;
+        const container = document.getElementById("container");
+        const statusEl  = document.getElementById("status");
+        const fileInput = document.getElementById("fileInput");
+
+        function setStatus(msg, type = "") {
+            statusEl.textContent = msg;
+            statusEl.className = "status " + type;
+        }
+
+        function initPlayer() {
+            if (typeof window.RufflePlayer === "undefined") {
+                setStatus("❌ Ruffle не загрузился. Проверь папку ruf/ и файл ruf/ruffle.js", "error");
+                return false;
+            }
+            const ruffle = window.RufflePlayer.newest();
+            if (!ruffle) {
+                setStatus("❌ Ruffle.newest() вернул null", "error");
+                return false;
+            }
+            player = ruffle.createPlayer();
+            player.style.width  = "100%";
+            player.style.height = "500px";
+
+            // Явно дублируем allowScriptAccess на инстанс игрока
+            player.ruffle().config = {
+                allowScriptAccess: true,
+                upgradeToHttps: false,
+                allowNetworking: "all",
+            };
+
+            container.innerHTML = "";
+            container.appendChild(player);
+            return true;
+        }
+
+        async function loadFile(file) {
+            if (!file) return;
+
+            if (!file.name.toLowerCase().endsWith(".swf")) {
+                setStatus("❌ Это не SWF-файл: " + file.name, "error");
+                return;
+            }
+
+            if (!player && !initPlayer()) return;
+
+            setStatus("Чтение " + file.name + " (" + (file.size/1024).toFixed(1) + " КБ)...");
+
+            try {
+                const buffer = await file.arrayBuffer();
+                const blob = new Blob([buffer], { type: "application/x-shockwave-flash" });
+
+                if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+                currentBlobUrl = URL.createObjectURL(blob);
+
+                setStatus("Загрузка в Ruffle...");
+
+                // Важно: load() принимает и объект с настройками
+                await player.ruffle().load({
+                    url: currentBlobUrl,
+                    allowScriptAccess: true,
+                });
+
+                setStatus("✅ Играем: " + file.name, "ok");
+                console.log("Ruffle metadata:", player.ruffle().metadata);
+            } catch (e) {
+                setStatus("❌ Ошибка: " + (e && e.message ? e.message : e), "error");
+                console.error(e);
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!player) return;
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                player.requestFullscreen().catch(err => {
+                    setStatus("❌ Fullscreen: " + err.message, "error");
+                });
+            }
+        }
+
+        // Выбор файла
+        fileInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (file) loadFile(file);
+            fileInput.value = "";
+        });
+
+        // Drag&drop
+        container.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            container.classList.add("dragover");
+        });
+        container.addEventListener("dragleave", () => {
+            container.classList.remove("dragover");
+        });
+        container.addEventListener("drop", (e) => {
+            e.preventDefault();
+            container.classList.remove("dragover");
+            const file = e.dataTransfer.files[0];
+            if (file) loadFile(file);
+        });
+
+        document.addEventListener("dragover", (e) => e.preventDefault());
+        document.addEventListener("drop", (e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            if (file) loadFile(file);
+        });
+
+        window.addEventListener("load", () => {
+            initPlayer();
+        });
+    </script>
+</body>
+</html>
