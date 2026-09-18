@@ -112,6 +112,13 @@
             box-shadow: 0 6px 20px rgba(74,85,104,0.5);
         }
 
+        button.library-btn {
+            background: linear-gradient(90deg, #6c5ce7, #4834d4);
+        }
+        button.library-btn:hover {
+            box-shadow: 0 6px 20px rgba(108,92,231,0.5);
+        }
+
         .status {
             margin-top: 16px;
             font-size: 13px;
@@ -146,6 +153,161 @@
             outline-offset: -6px;
             background: #1a0f1a;
         }
+
+        /* ===== Модальное окно библиотеки ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .modal-overlay.open { display: flex; }
+
+        .modal {
+            background: #16213e;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 820px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            flex-shrink: 0;
+        }
+
+        .modal-header h2 {
+            font-size: 1.25rem;
+            background: linear-gradient(90deg, #6c5ce7, #a29bfe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            font-size: 1.6rem;
+            cursor: pointer;
+            padding: 0 6px;
+            line-height: 1;
+            transition: color 0.15s;
+        }
+        .modal-close:hover { color: #fff; }
+
+        .modal-search {
+            padding: 12px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+        }
+
+        .modal-search input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+        }
+        .modal-search input:focus {
+            border-color: #6c5ce7;
+        }
+
+        .modal-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 10px 24px 0;
+            flex-shrink: 0;
+        }
+
+        .modal-tabs button {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 8px 8px 0 0;
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.6);
+            font-weight: 500;
+        }
+        .modal-tabs button.active {
+            background: rgba(108,92,231,0.25);
+            color: #a29bfe;
+        }
+        .modal-tabs button:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .modal-body {
+            overflow-y: auto;
+            padding: 12px 24px 20px;
+            flex: 1;
+        }
+
+        .modal-body .loading {
+            text-align: center;
+            padding: 40px 0;
+            color: rgba(255,255,255,0.4);
+        }
+
+        .game-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.12s;
+            gap: 12px;
+        }
+        .game-item:hover {
+            background: rgba(108,92,231,0.18);
+        }
+        .game-item .name {
+            font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+        }
+        .game-item .repo-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.5);
+            flex-shrink: 0;
+        }
+
+        .modal-footer {
+            padding: 12px 24px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            font-size: 12px;
+            color: rgba(255,255,255,0.35);
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 1.3rem; }
+            .modal { max-height: 92vh; }
+            .modal-header h2 { font-size: 1rem; }
+        }
     </style>
 </head>
 <body>
@@ -162,6 +324,7 @@
 
     <div class="controls">
         <button onclick="document.getElementById('fileInput').click()">📂 Открыть SWF</button>
+        <button class="library-btn" id="libraryBtn">📚 Библиотека</button>
         <button class="secondary" onclick="toggleFullscreen()">⛶ Полный экран</button>
     </div>
 
@@ -174,6 +337,29 @@
         Ruffle подключается из локальной папки <code>ruf/</code>.<br>
         <b>allowScriptAccess: true</b> включён — SWF может обращаться к JS.<br>
         При загрузке по ссылке возможны ограничения CORS на стороне сайта-источника.
+    </div>
+
+    <!-- ===== Модальное окно библиотеки ===== -->
+    <div class="modal-overlay" id="libraryModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>📚 Библиотека Flash-игр</h2>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-search">
+                <input type="text" id="librarySearch" placeholder="Поиск по названию...">
+            </div>
+            <div class="modal-tabs" id="libraryTabs">
+                <button data-repo="all" class="active">Все</button>
+                <button data-repo="AmmarSAA/Flash-Games-Directory">Flash-Games-Directory</button>
+                <button data-repo="selenite-cc/flasharchive">flasharchive</button>
+                <button data-repo="BinBashBanana/gstore">gstore</button>
+            </div>
+            <div class="modal-body" id="libraryBody">
+                <div class="loading">Загрузка списка игр...</div>
+            </div>
+            <div class="modal-footer" id="libraryFooter"></div>
+        </div>
     </div>
 
     <script>
@@ -196,10 +382,7 @@
             allowNetworking: "all",
             splashScreen: true,
             playerVersion: 32,
-            cors: {
-                // Разрешаем Ruffle тянуть SWF с любых источников
-                credentials: "omit"
-            }
+            cors: { credentials: "omit" }
         };
 
         window.RufflePlayer.config.socketProxy = [];
@@ -249,32 +432,21 @@
 
         async function loadFile(file) {
             if (!file) return;
-
             if (!file.name.toLowerCase().endsWith(".swf")) {
                 setStatus("❌ Это не SWF-файл: " + file.name, "error");
                 return;
             }
-
             if (!player && !initPlayer()) return;
 
             setStatus("Чтение " + file.name + " (" + (file.size/1024).toFixed(1) + " КБ)...");
-
             try {
                 const buffer = await file.arrayBuffer();
                 const blob = new Blob([buffer], { type: "application/x-shockwave-flash" });
-
                 if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
                 currentBlobUrl = URL.createObjectURL(blob);
-
                 setStatus("Загрузка в Ruffle...");
-
-                await player.ruffle().load({
-                    url: currentBlobUrl,
-                    allowScriptAccess: true,
-                });
-
+                await player.ruffle().load({ url: currentBlobUrl, allowScriptAccess: true });
                 setStatus("✅ Играем: " + file.name, "ok");
-                console.log("Ruffle metadata:", player.ruffle().metadata);
             } catch (e) {
                 setStatus("❌ Ошибка: " + (e && e.message ? e.message : e), "error");
                 console.error(e);
@@ -283,65 +455,32 @@
 
         async function loadFromUrl(url) {
             url = (url || "").trim();
-            if (!url) {
-                setStatus("❌ Вставь ссылку на SWF", "error");
-                return;
-            }
-            // Простейшая нормализация: если нет схемы — пробуем добавить https://
+            if (!url) { setStatus("❌ Вставь ссылку на SWF", "error"); return; }
             if (!/^https?:\/\//i.test(url) && !url.startsWith("blob:") && !url.startsWith("data:")) {
                 url = "https://" + url;
             }
-
             if (!player && !initPlayer()) return;
 
-            // Пробуем скачать вручную, чтобы показать размер и поймать CORS-ошибку с понятным текстом.
             setStatus("Скачивание по ссылке: " + url);
-
             try {
                 const resp = await fetch(url, { mode: "cors", credentials: "omit" });
-                if (!resp.ok) {
-                    throw new Error("HTTP " + resp.status + " " + resp.statusText);
-                }
+                if (!resp.ok) throw new Error("HTTP " + resp.status + " " + resp.statusText);
                 const buffer = await resp.arrayBuffer();
                 const sizeKb = (buffer.byteLength / 1024).toFixed(1);
-
-                if (buffer.byteLength < 3 ||
-                    new TextDecoder().decode(buffer.slice(0, 3)) !== "FWS" &&
-                    new TextDecoder().decode(buffer.slice(0, 3)) !== "CWS" &&
-                    new TextDecoder().decode(buffer.slice(0, 3)) !== "ZWS") {
-                    // Всё ещё пробуем — возможно это распакованный/нестандартный SWF
-                    console.warn("Похоже, это не классический SWF (нет FWS/CWS/ZWS в начале), но пробуем загрузить");
-                }
-
                 const blob = new Blob([buffer], { type: "application/x-shockwave-flash" });
                 if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
                 currentBlobUrl = URL.createObjectURL(blob);
-
                 setStatus("Скачано (" + sizeKb + " КБ). Загрузка в Ruffle...");
-
-                await player.ruffle().load({
-                    url: currentBlobUrl,
-                    allowScriptAccess: true,
-                });
-
+                await player.ruffle().load({ url: currentBlobUrl, allowScriptAccess: true });
                 setStatus("✅ Играем по ссылке: " + url, "ok");
-                console.log("Ruffle metadata:", player.ruffle().metadata);
             } catch (e) {
-                // Скорее всего CORS. Пробуем отдать URL напрямую в Ruffle — иногда срабатывает
-                // (например, если у Ruffle есть собственный путь загрузки/локальный файл).
                 console.warn("Fetch не удался, пробую отдать URL напрямую в Ruffle:", e);
-                setStatus("⚠ Не удалось скачать напрямую (" + (e && e.message ? e.message : e) +
-                          "). Пробую передать URL в Ruffle...");
-
+                setStatus("⚠ Не удалось скачать напрямую. Пробую передать URL в Ruffle...");
                 try {
-                    await player.ruffle().load({
-                        url: url,
-                        allowScriptAccess: true,
-                    });
-                    setStatus("✅ Загружено в Ruffle по ссылке (возможны ограничения CORS внутри SWF): " + url, "ok");
+                    await player.ruffle().load({ url: url, allowScriptAccess: true });
+                    setStatus("✅ Загружено в Ruffle по ссылке: " + url, "ok");
                 } catch (e2) {
-                    setStatus("❌ Не удалось загрузить: " + (e2 && e2.message ? e2.message : e2) +
-                              " — вероятно, сайт блокирует CORS. Скачай файл и открой кнопкой «Открыть SWF».", "error");
+                    setStatus("❌ Не удалось загрузить. Скачай файл и открой кнопкой «Открыть SWF».", "error");
                     console.error(e2);
                 }
             }
@@ -358,23 +497,144 @@
             }
         }
 
-        // Выбор файла
+        // ===== Библиотека =====
+        const REPOS = [
+            {
+                owner: "AmmarSAA",
+                repo: "Flash-Games-Directory",
+                branch: "main",
+                label: "Flash-Games-Directory"
+            },
+            {
+                owner: "selenite-cc",
+                repo: "flasharchive",
+                branch: "main",
+                label: "flasharchive"
+            },
+            {
+                owner: "BinBashBanana",
+                repo: "gstore",
+                branch: "master",
+                label: "gstore"
+            }
+        ];
+
+        let allGames = [];          // [{name, url, repoLabel}]
+        let currentRepoFilter = "all";
+
+        const libraryModal = document.getElementById("libraryModal");
+        const libraryBody  = document.getElementById("libraryBody");
+        const libraryFooter = document.getElementById("libraryFooter");
+        const librarySearch = document.getElementById("librarySearch");
+        const libraryTabs  = document.getElementById("libraryTabs");
+
+        async function fetchRepoSwfList(repoInfo) {
+            const apiUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/git/trees/${repoInfo.branch}?recursive=1`;
+            const resp = await fetch(apiUrl);
+            if (!resp.ok) throw new Error(`GitHub API ${resp.status} для ${repoInfo.repo}`);
+            const data = await resp.json();
+            const items = (data.tree || [])
+                .filter(item => item.type === "blob" && item.path.toLowerCase().endsWith(".swf"))
+                .map(item => {
+                    const name = item.path.split("/").pop().replace(/\.swf$/i, "");
+                    const rawUrl = `https://raw.githubusercontent.com/${repoInfo.owner}/${repoInfo.repo}/${repoInfo.branch}/${encodeURI(item.path)}`;
+                    return { name, url: rawUrl, repoLabel: repoInfo.label };
+                });
+            return items;
+        }
+
+        async function loadLibrary() {
+            libraryBody.innerHTML = '<div class="loading">Загрузка списка игр...</div>';
+            libraryFooter.textContent = "";
+            allGames = [];
+
+            const results = await Promise.allSettled(
+                REPOS.map(r => fetchRepoSwfList(r))
+            );
+
+            results.forEach((res, idx) => {
+                if (res.status === "fulfilled") {
+                    allGames.push(...res.value);
+                } else {
+                    console.warn("Ошибка загрузки", REPOS[idx].repo, res.reason);
+                }
+            });
+
+            // Сортировка по имени
+            allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+            renderLibrary();
+        }
+
+        function renderLibrary() {
+            const query = librarySearch.value.trim().toLowerCase();
+            let filtered = allGames;
+
+            if (currentRepoFilter !== "all") {
+                filtered = filtered.filter(g => g.repoLabel === currentRepoFilter);
+            }
+            if (query) {
+                filtered = filtered.filter(g => g.name.toLowerCase().includes(query));
+            }
+
+            if (filtered.length === 0) {
+                libraryBody.innerHTML = '<div class="loading">Ничего не найдено</div>';
+                libraryFooter.textContent = `Всего игр: ${allGames.length}`;
+                return;
+            }
+
+            libraryBody.innerHTML = filtered.map((g, i) => `
+                <div class="game-item" data-index="${i}">
+                    <span class="name">${escapeHtml(g.name)}</span>
+                    <span class="repo-badge">${g.repoLabel}</span>
+                </div>
+            `).join("");
+
+            libraryBody.querySelectorAll(".game-item").forEach(el => {
+                el.addEventListener("click", () => {
+                    const idx = parseInt(el.dataset.index, 10);
+                    const game = filtered[idx];
+                    closeLibrary();
+                    loadFromUrl(game.url);
+                });
+            });
+
+            libraryFooter.textContent = `Показано: ${filtered.length} из ${allGames.length} игр`;
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement("div");
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function openLibrary() {
+            libraryModal.classList.add("open");
+            document.body.style.overflow = "hidden";
+            if (allGames.length === 0) {
+                loadLibrary();
+            } else {
+                renderLibrary();
+            }
+        }
+
+        function closeLibrary() {
+            libraryModal.classList.remove("open");
+            document.body.style.overflow = "";
+        }
+
+        // ===== Обработчики =====
         fileInput.addEventListener("change", (e) => {
             const file = e.target.files[0];
             if (file) loadFile(file);
             fileInput.value = "";
         });
 
-        // Кнопка загрузки по ссылке + Enter в поле
         urlLoadBtn.addEventListener("click", () => loadFromUrl(urlInput.value));
         urlInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                loadFromUrl(urlInput.value);
-            }
+            if (e.key === "Enter") { e.preventDefault(); loadFromUrl(urlInput.value); }
         });
 
-        // Drag&drop
         container.addEventListener("dragover", (e) => {
             e.preventDefault();
             container.classList.add("dragover");
@@ -389,7 +649,6 @@
             if (file) {
                 loadFile(file);
             } else {
-                // Перетащили ссылку из адресной строки браузера
                 const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
                 if (text) loadFromUrl(text);
             }
@@ -404,6 +663,25 @@
                 const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
                 if (text) loadFromUrl(text);
             }
+        });
+
+        // Библиотека
+        document.getElementById("libraryBtn").addEventListener("click", openLibrary);
+        document.getElementById("modalClose").addEventListener("click", closeLibrary);
+        libraryModal.addEventListener("click", (e) => {
+            if (e.target === libraryModal) closeLibrary();
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && libraryModal.classList.contains("open")) closeLibrary();
+        });
+        librarySearch.addEventListener("input", renderLibrary);
+        libraryTabs.addEventListener("click", (e) => {
+            const btn = e.target.closest("button[data-repo]");
+            if (!btn) return;
+            libraryTabs.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            currentRepoFilter = btn.dataset.repo;
+            renderLibrary();
         });
 
         window.addEventListener("load", () => {
