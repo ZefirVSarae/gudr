@@ -229,30 +229,6 @@
             border-color: #6c5ce7;
         }
 
-        .modal-tabs {
-            display: flex;
-            gap: 4px;
-            padding: 10px 24px 0;
-            flex-shrink: 0;
-        }
-
-        .modal-tabs button {
-            padding: 8px 16px;
-            font-size: 13px;
-            border-radius: 8px 8px 0 0;
-            background: rgba(255,255,255,0.05);
-            color: rgba(255,255,255,0.6);
-            font-weight: 500;
-        }
-        .modal-tabs button.active {
-            background: rgba(108,92,231,0.25);
-            color: #a29bfe;
-        }
-        .modal-tabs button:hover {
-            transform: none;
-            box-shadow: none;
-        }
-
         .modal-body {
             overflow-y: auto;
             padding: 12px 24px 20px;
@@ -285,13 +261,33 @@
             white-space: nowrap;
             flex: 1;
         }
-        .game-item .repo-badge {
+        .game-item .size {
             font-size: 11px;
             padding: 2px 8px;
             border-radius: 20px;
             background: rgba(255,255,255,0.08);
             color: rgba(255,255,255,0.5);
             flex-shrink: 0;
+        }
+
+        .load-more-btn {
+            display: block;
+            width: 100%;
+            margin: 16px 0 8px;
+            padding: 12px;
+            background: rgba(108,92,231,0.2);
+            border: 1px dashed rgba(108,92,231,0.5);
+            border-radius: 8px;
+            color: #a29bfe;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .load-more-btn:hover {
+            background: rgba(108,92,231,0.35);
+            transform: none;
+            box-shadow: none;
         }
 
         .modal-footer {
@@ -336,24 +332,18 @@
         Работает без сервера — откройте <code>index.html</code> двойным кликом.<br>
         Ruffle подключается из локальной папки <code>ruf/</code>.<br>
         <b>allowScriptAccess: true</b> включён — SWF может обращаться к JS.<br>
-        При загрузке по ссылке возможны ограничения CORS на стороне сайта-источника.
+        Библиотека загружается из коллекции <code>archive.org/download/armorgames</code>.
     </div>
 
     <!-- ===== Модальное окно библиотеки ===== -->
     <div class="modal-overlay" id="libraryModal">
         <div class="modal">
             <div class="modal-header">
-                <h2>📚 Библиотека Flash-игр</h2>
+                <h2>📚 Библиотека ArmorGames (archive.org)</h2>
                 <button class="modal-close" id="modalClose">&times;</button>
             </div>
             <div class="modal-search">
                 <input type="text" id="librarySearch" placeholder="Поиск по названию...">
-            </div>
-            <div class="modal-tabs" id="libraryTabs">
-                <button data-repo="all" class="active">Все</button>
-                <button data-repo="AmmarSAA/Flash-Games-Directory">Flash-Games-Directory</button>
-                <button data-repo="selenite-cc/flasharchive">flasharchive</button>
-                <button data-repo="BinBashBanana/gstore">gstore</button>
             </div>
             <div class="modal-body" id="libraryBody">
                 <div class="loading">Загрузка списка игр...</div>
@@ -497,109 +487,123 @@
             }
         }
 
-        // ===== Библиотека =====
-        const REPOS = [
-            {
-                owner: "AmmarSAA",
-                repo: "Flash-Games-Directory",
-                branch: "main",
-                label: "Flash-Games-Directory"
-            },
-            {
-                owner: "selenite-cc",
-                repo: "flasharchive",
-                branch: "main",
-                label: "flasharchive"
-            },
-            {
-                owner: "BinBashBanana",
-                repo: "gstore",
-                branch: "master",
-                label: "gstore"
-            }
-        ];
+        // ===== Библиотека ArmorGames (archive.org) =====
+        const ARCHIVE_ITEM = "armorgames";
+        const ARCHIVE_METADATA_URL = `https://archive.org/metadata/${ARCHIVE_ITEM}`;
+        const ARCHIVE_DOWNLOAD_BASE = `https://archive.org/download/${ARCHIVE_ITEM}/`;
+        const PAGE_SIZE = 100; // сколько показывать за раз
 
-        let allGames = [];          // [{name, url, repoLabel}]
-        let currentRepoFilter = "all";
+        let allGames = [];          // [{name, url, size}]
+        let displayedCount = 0;
+        let filteredGames = [];     // результат поиска/фильтра
 
         const libraryModal = document.getElementById("libraryModal");
         const libraryBody  = document.getElementById("libraryBody");
         const libraryFooter = document.getElementById("libraryFooter");
         const librarySearch = document.getElementById("librarySearch");
-        const libraryTabs  = document.getElementById("libraryTabs");
-
-        async function fetchRepoSwfList(repoInfo) {
-            const apiUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/git/trees/${repoInfo.branch}?recursive=1`;
-            const resp = await fetch(apiUrl);
-            if (!resp.ok) throw new Error(`GitHub API ${resp.status} для ${repoInfo.repo}`);
-            const data = await resp.json();
-            const items = (data.tree || [])
-                .filter(item => item.type === "blob" && item.path.toLowerCase().endsWith(".swf"))
-                .map(item => {
-                    const name = item.path.split("/").pop().replace(/\.swf$/i, "");
-                    const rawUrl = `https://raw.githubusercontent.com/${repoInfo.owner}/${repoInfo.repo}/${repoInfo.branch}/${encodeURI(item.path)}`;
-                    return { name, url: rawUrl, repoLabel: repoInfo.label };
-                });
-            return items;
-        }
 
         async function loadLibrary() {
-            libraryBody.innerHTML = '<div class="loading">Загрузка списка игр...</div>';
+            libraryBody.innerHTML = '<div class="loading">Загрузка списка игр с archive.org...</div>';
             libraryFooter.textContent = "";
             allGames = [];
+            displayedCount = 0;
 
-            const results = await Promise.allSettled(
-                REPOS.map(r => fetchRepoSwfList(r))
-            );
+            try {
+                const resp = await fetch(ARCHIVE_METADATA_URL);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
 
-            results.forEach((res, idx) => {
-                if (res.status === "fulfilled") {
-                    allGames.push(...res.value);
-                } else {
-                    console.warn("Ошибка загрузки", REPOS[idx].repo, res.reason);
-                }
-            });
+                const files = data.files || [];
+                allGames = files
+                    .filter(f => f.name && f.name.toLowerCase().endsWith(".swf"))
+                    .map(f => ({
+                        name: f.name.replace(/\.swf$/i, ""),
+                        url: ARCHIVE_DOWNLOAD_BASE + encodeURIComponent(f.name),
+                        size: f.size ? formatSize(parseInt(f.size, 10)) : ""
+                    }));
 
-            // Сортировка по имени
-            allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+                // Сортировка по имени
+                allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
-            renderLibrary();
+                filteredGames = allGames.slice();
+                displayedCount = 0;
+                renderLibrary();
+            } catch (e) {
+                console.error(e);
+                libraryBody.innerHTML = `<div class="loading">❌ Ошибка загрузки: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function formatSize(bytes) {
+            if (!bytes || isNaN(bytes)) return "";
+            const kb = bytes / 1024;
+            if (kb < 1024) return kb.toFixed(1) + " КБ";
+            return (kb / 1024).toFixed(1) + " МБ";
         }
 
         function renderLibrary() {
             const query = librarySearch.value.trim().toLowerCase();
-            let filtered = allGames;
 
-            if (currentRepoFilter !== "all") {
-                filtered = filtered.filter(g => g.repoLabel === currentRepoFilter);
-            }
             if (query) {
-                filtered = filtered.filter(g => g.name.toLowerCase().includes(query));
+                filteredGames = allGames.filter(g => g.name.toLowerCase().includes(query));
+            } else {
+                filteredGames = allGames.slice();
             }
 
-            if (filtered.length === 0) {
+            if (filteredGames.length === 0) {
                 libraryBody.innerHTML = '<div class="loading">Ничего не найдено</div>';
                 libraryFooter.textContent = `Всего игр: ${allGames.length}`;
                 return;
             }
 
-            libraryBody.innerHTML = filtered.map((g, i) => `
+            // Определяем, сколько показывать
+            const toShow = query ? filteredGames.length : Math.min(displayedCount + PAGE_SIZE, filteredGames.length);
+            if (!query) displayedCount = toShow;
+
+            const slice = filteredGames.slice(0, toShow);
+
+            let html = slice.map((g, i) => `
                 <div class="game-item" data-index="${i}">
                     <span class="name">${escapeHtml(g.name)}</span>
-                    <span class="repo-badge">${g.repoLabel}</span>
+                    ${g.size ? `<span class="size">${g.size}</span>` : ""}
                 </div>
             `).join("");
 
+            // Кнопка «Показать ещё» (только если не ищем и есть что показать)
+            if (!query && displayedCount < filteredGames.length) {
+                const remaining = filteredGames.length - displayedCount;
+                html += `<button class="load-more-btn" id="loadMoreBtn">⬇ Показать ещё ${Math.min(PAGE_SIZE, remaining)} из ${remaining} оставшихся</button>`;
+            }
+
+            libraryBody.innerHTML = html;
+
+            // Обработчики кликов по играм
             libraryBody.querySelectorAll(".game-item").forEach(el => {
                 el.addEventListener("click", () => {
                     const idx = parseInt(el.dataset.index, 10);
-                    const game = filtered[idx];
-                    closeLibrary();
-                    loadFromUrl(game.url);
+                    const game = slice[idx];
+                    if (game) {
+                        closeLibrary();
+                        loadFromUrl(game.url);
+                    }
                 });
             });
 
-            libraryFooter.textContent = `Показано: ${filtered.length} из ${allGames.length} игр`;
+            // Обработчик «Показать ещё»
+            const loadMoreBtn = document.getElementById("loadMoreBtn");
+            if (loadMoreBtn) {
+                loadMoreBtn.addEventListener("click", () => {
+                    displayedCount += PAGE_SIZE;
+                    renderLibrary();
+                });
+            }
+
+            // Футер
+            if (query) {
+                libraryFooter.textContent = `Найдено: ${filteredGames.length} из ${allGames.length}`;
+            } else {
+                libraryFooter.textContent = `Показано: ${Math.min(displayedCount, filteredGames.length)} из ${allGames.length}`;
+            }
         }
 
         function escapeHtml(str) {
@@ -614,6 +618,7 @@
             if (allGames.length === 0) {
                 loadLibrary();
             } else {
+                displayedCount = 0;
                 renderLibrary();
             }
         }
@@ -674,13 +679,8 @@
         document.addEventListener("keydown", (e) => {
             if (e.key === "Escape" && libraryModal.classList.contains("open")) closeLibrary();
         });
-        librarySearch.addEventListener("input", renderLibrary);
-        libraryTabs.addEventListener("click", (e) => {
-            const btn = e.target.closest("button[data-repo]");
-            if (!btn) return;
-            libraryTabs.querySelectorAll("button").forEach(b => b.classList.remove("active"));
-            btn.classList.add("active");
-            currentRepoFilter = btn.dataset.repo;
+        librarySearch.addEventListener("input", () => {
+            displayedCount = 0;
             renderLibrary();
         });
 
