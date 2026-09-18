@@ -541,9 +541,21 @@
 
         async function fetchArchiveOrgList() {
             const metaUrl = `https://archive.org/metadata/${ARCHIVE_ORG.id}`;
-            const resp = await fetch(metaUrl);
-            if (!resp.ok) throw new Error(`Internet Archive API ${resp.status}`);
-            const data = await resp.json();
+            // CORS-прокси: браузер блокирует прямой запрос к archive.org из file://
+            const proxiedUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(metaUrl)}`;
+
+            let data;
+            try {
+                const resp = await fetch(proxiedUrl);
+                if (!resp.ok) throw new Error(`Proxy HTTP ${resp.status}`);
+                data = await resp.json();
+            } catch (e) {
+                console.warn("Прокси не сработал, пробую прямой запрос:", e);
+                const resp = await fetch(metaUrl);
+                if (!resp.ok) throw new Error(`Internet Archive API ${resp.status}`);
+                data = await resp.json();
+            }
+
             const files = data.files || [];
             return files
                 .filter(f => f.name && f.name.toLowerCase().endsWith(".swf"))
@@ -564,17 +576,25 @@
                 fetchArchiveOrgList()
             ]);
 
-            results.forEach((res) => {
+            let failedSources = [];
+            results.forEach((res, i) => {
                 if (res.status === "fulfilled") {
                     allGames.push(...res.value);
                 } else {
-                    console.warn("Ошибка загрузки источника:", res.reason);
+                    const srcLabel = i < REPOS.length ? REPOS[i].label : ARCHIVE_ORG.label;
+                    console.warn("Ошибка загрузки источника", srcLabel, res.reason);
+                    failedSources.push(srcLabel);
                 }
             });
 
             allGames.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
             renderLibrary();
+
+            if (failedSources.length) {
+                libraryFooter.textContent +=
+                    ` | ⚠ Не загрузились: ${failedSources.join(", ")}`;
+            }
         }
 
         function renderLibrary() {
