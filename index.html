@@ -47,8 +47,38 @@
             height: 500px;
         }
 
-        .controls {
+        .url-row {
             margin-top: 20px;
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .url-row input[type="text"] {
+            flex: 1 1 400px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .url-row input[type="text"]:focus {
+            border-color: #e94560;
+            background: rgba(255,255,255,0.09);
+        }
+
+        .url-row input[type="text"]::placeholder {
+            color: rgba(255,255,255,0.35);
+        }
+
+        .controls {
+            margin-top: 16px;
             display: flex;
             gap: 12px;
             flex-wrap: wrap;
@@ -65,6 +95,7 @@
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.15s, box-shadow 0.15s;
+            white-space: nowrap;
         }
 
         button:hover {
@@ -74,6 +105,13 @@
 
         button:active { transform: translateY(0); }
 
+        button.secondary {
+            background: linear-gradient(90deg, #4a5568, #2d3748);
+        }
+        button.secondary:hover {
+            box-shadow: 0 6px 20px rgba(74,85,104,0.5);
+        }
+
         .status {
             margin-top: 16px;
             font-size: 13px;
@@ -81,6 +119,7 @@
             min-height: 20px;
             text-align: center;
             word-break: break-all;
+            max-width: 900px;
         }
 
         .status.error { color: #ff6b6b; }
@@ -115,19 +154,26 @@
 
     <div id="container"></div>
 
+    <div class="url-row">
+        <input type="text" id="urlInput"
+               placeholder="Вставь ссылку на .swf и нажми «Загрузить» (например: https://example.com/game.swf)">
+        <button id="urlLoadBtn">🌐 Загрузить по ссылке</button>
+    </div>
+
     <div class="controls">
         <button onclick="document.getElementById('fileInput').click()">📂 Открыть SWF</button>
-        <button onclick="toggleFullscreen()">⛶ Полный экран</button>
+        <button class="secondary" onclick="toggleFullscreen()">⛶ Полный экран</button>
     </div>
 
     <input type="file" id="fileInput" accept=".swf,application/x-shockwave-flash" style="display:none">
 
-    <div class="status" id="status">Выберите SWF-файл или перетащите его в окно</div>
+    <div class="status" id="status">Выберите SWF-файл, вставьте ссылку или перетащите файл в окно</div>
 
     <div class="hint">
         Работает без сервера — откройте <code>index.html</code> двойным кликом.<br>
         Ruffle подключается из локальной папки <code>ruf/</code>.<br>
-        <b>allowScriptAccess: true</b> включён — SWF может обращаться к JS.
+        <b>allowScriptAccess: true</b> включён — SWF может обращаться к JS.<br>
+        При загрузке по ссылке возможны ограничения CORS на стороне сайта-источника.
     </div>
 
     <script>
@@ -144,16 +190,18 @@
             showSwfDownload: false,
             contextMenu: "on",
             backgroundColor: "#000000",
-            logLevel: "warn",            // чуть подробнее логи
-            allowScriptAccess: true,     // ← РАЗРЕШЕНО
+            logLevel: "warn",
+            allowScriptAccess: true,
             upgradeToHttps: false,
             allowNetworking: "all",
             splashScreen: true,
             playerVersion: 32,
+            cors: {
+                // Разрешаем Ruffle тянуть SWF с любых источников
+                credentials: "omit"
+            }
         };
 
-        // Заглушка для ExternalInterface.call("window.location...") и т.п.
-        // Некоторые SWF проверяют домен через JS — подсовываем «нормальный» вид.
         window.RufflePlayer.config.socketProxy = [];
     </script>
 
@@ -166,6 +214,8 @@
         const container = document.getElementById("container");
         const statusEl  = document.getElementById("status");
         const fileInput = document.getElementById("fileInput");
+        const urlInput  = document.getElementById("urlInput");
+        const urlLoadBtn = document.getElementById("urlLoadBtn");
 
         function setStatus(msg, type = "") {
             statusEl.textContent = msg;
@@ -186,7 +236,6 @@
             player.style.width  = "100%";
             player.style.height = "500px";
 
-            // Явно дублируем allowScriptAccess на инстанс игрока
             player.ruffle().config = {
                 allowScriptAccess: true,
                 upgradeToHttps: false,
@@ -219,7 +268,6 @@
 
                 setStatus("Загрузка в Ruffle...");
 
-                // Важно: load() принимает и объект с настройками
                 await player.ruffle().load({
                     url: currentBlobUrl,
                     allowScriptAccess: true,
@@ -230,6 +278,72 @@
             } catch (e) {
                 setStatus("❌ Ошибка: " + (e && e.message ? e.message : e), "error");
                 console.error(e);
+            }
+        }
+
+        async function loadFromUrl(url) {
+            url = (url || "").trim();
+            if (!url) {
+                setStatus("❌ Вставь ссылку на SWF", "error");
+                return;
+            }
+            // Простейшая нормализация: если нет схемы — пробуем добавить https://
+            if (!/^https?:\/\//i.test(url) && !url.startsWith("blob:") && !url.startsWith("data:")) {
+                url = "https://" + url;
+            }
+
+            if (!player && !initPlayer()) return;
+
+            // Пробуем скачать вручную, чтобы показать размер и поймать CORS-ошибку с понятным текстом.
+            setStatus("Скачивание по ссылке: " + url);
+
+            try {
+                const resp = await fetch(url, { mode: "cors", credentials: "omit" });
+                if (!resp.ok) {
+                    throw new Error("HTTP " + resp.status + " " + resp.statusText);
+                }
+                const buffer = await resp.arrayBuffer();
+                const sizeKb = (buffer.byteLength / 1024).toFixed(1);
+
+                if (buffer.byteLength < 3 ||
+                    new TextDecoder().decode(buffer.slice(0, 3)) !== "FWS" &&
+                    new TextDecoder().decode(buffer.slice(0, 3)) !== "CWS" &&
+                    new TextDecoder().decode(buffer.slice(0, 3)) !== "ZWS") {
+                    // Всё ещё пробуем — возможно это распакованный/нестандартный SWF
+                    console.warn("Похоже, это не классический SWF (нет FWS/CWS/ZWS в начале), но пробуем загрузить");
+                }
+
+                const blob = new Blob([buffer], { type: "application/x-shockwave-flash" });
+                if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+                currentBlobUrl = URL.createObjectURL(blob);
+
+                setStatus("Скачано (" + sizeKb + " КБ). Загрузка в Ruffle...");
+
+                await player.ruffle().load({
+                    url: currentBlobUrl,
+                    allowScriptAccess: true,
+                });
+
+                setStatus("✅ Играем по ссылке: " + url, "ok");
+                console.log("Ruffle metadata:", player.ruffle().metadata);
+            } catch (e) {
+                // Скорее всего CORS. Пробуем отдать URL напрямую в Ruffle — иногда срабатывает
+                // (например, если у Ruffle есть собственный путь загрузки/локальный файл).
+                console.warn("Fetch не удался, пробую отдать URL напрямую в Ruffle:", e);
+                setStatus("⚠ Не удалось скачать напрямую (" + (e && e.message ? e.message : e) +
+                          "). Пробую передать URL в Ruffle...");
+
+                try {
+                    await player.ruffle().load({
+                        url: url,
+                        allowScriptAccess: true,
+                    });
+                    setStatus("✅ Загружено в Ruffle по ссылке (возможны ограничения CORS внутри SWF): " + url, "ok");
+                } catch (e2) {
+                    setStatus("❌ Не удалось загрузить: " + (e2 && e2.message ? e2.message : e2) +
+                              " — вероятно, сайт блокирует CORS. Скачай файл и открой кнопкой «Открыть SWF».", "error");
+                    console.error(e2);
+                }
             }
         }
 
@@ -251,6 +365,15 @@
             fileInput.value = "";
         });
 
+        // Кнопка загрузки по ссылке + Enter в поле
+        urlLoadBtn.addEventListener("click", () => loadFromUrl(urlInput.value));
+        urlInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                loadFromUrl(urlInput.value);
+            }
+        });
+
         // Drag&drop
         container.addEventListener("dragover", (e) => {
             e.preventDefault();
@@ -263,14 +386,24 @@
             e.preventDefault();
             container.classList.remove("dragover");
             const file = e.dataTransfer.files[0];
-            if (file) loadFile(file);
+            if (file) {
+                loadFile(file);
+            } else {
+                // Перетащили ссылку из адресной строки браузера
+                const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+                if (text) loadFromUrl(text);
+            }
         });
-
         document.addEventListener("dragover", (e) => e.preventDefault());
         document.addEventListener("drop", (e) => {
             e.preventDefault();
             const file = e.dataTransfer.files[0];
-            if (file) loadFile(file);
+            if (file) {
+                loadFile(file);
+            } else {
+                const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
+                if (text) loadFromUrl(text);
+            }
         });
 
         window.addEventListener("load", () => {
